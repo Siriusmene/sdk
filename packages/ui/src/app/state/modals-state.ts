@@ -6,24 +6,31 @@ import { WalletsModalState } from 'src/models/wallets-modal';
 import { SingleWalletModalState } from 'src/models/single-wallet-modal';
 import { UIWalletInfo } from 'src/app/models/ui-wallet-info';
 
-export type ActionKind = 'sendTransaction' | 'signData' | 'signMessage';
+export const actionKindSendTransaction = 'sendTransaction' as const;
+export type ActionKindSendTransaction = typeof actionKindSendTransaction;
+export const actionKindSignData = 'signData' as const;
+export type ActionKindSignData = typeof actionKindSignData;
+export const actionKindSignMessage = 'signMessage' as const;
+export type ActionKindSignMessage = typeof actionKindSignMessage;
+
+export type ActionKind = ActionKindSendTransaction | ActionKindSignData | ActionKindSignMessage;
 
 export const confirmActionNames = {
-    sendTransaction: 'confirm-transaction',
-    signData: 'confirm-sign-data',
-    signMessage: 'confirm-sign-message'
+    [actionKindSendTransaction]: 'confirm-transaction',
+    [actionKindSignData]: 'confirm-sign-data',
+    [actionKindSignMessage]: 'confirm-sign-message'
 } as const satisfies Record<ActionKind, string>;
 
 export const successActionNames = {
-    sendTransaction: 'transaction-sent',
-    signData: 'data-signed',
-    signMessage: 'message-signed'
+    [actionKindSendTransaction]: 'transaction-sent',
+    [actionKindSignData]: 'data-signed',
+    [actionKindSignMessage]: 'message-signed'
 } as const satisfies Record<ActionKind, string>;
 
 export const errorActionNames = {
-    sendTransaction: 'transaction-canceled',
-    signData: 'sign-data-canceled',
-    signMessage: 'sign-message-canceled'
+    [actionKindSendTransaction]: 'transaction-canceled',
+    [actionKindSignData]: 'sign-data-canceled',
+    [actionKindSignMessage]: 'sign-message-canceled'
 } as const satisfies Record<ActionKind, string>;
 
 export type ConfirmActionName = (typeof confirmActionNames)[ActionKind];
@@ -37,62 +44,26 @@ type BaseAction = {
     traceId: string;
 };
 
-type ConfirmActionExtras = {
+type ActionByKind<
+    Names extends Record<ActionKind, string>,
+    TAction extends ActionKind
+> = TAction extends ActionKind ? BaseAction & { name: Names[TAction] } : never;
+
+export type ConfirmAction<TAction extends ActionKind = ActionKind> = {
     returnStrategy?: ReturnStrategy;
     twaReturnUrl?: `${string}://${string}`;
     executed?: boolean;
-};
+} & ActionByKind<typeof confirmActionNames, TAction>;
 
-export type ConfirmTransactionAction = BaseAction &
-    ConfirmActionExtras & {
-        name: typeof confirmActionNames.sendTransaction;
-    };
+export type SuccessAction<TAction extends ActionKind = ActionKind> = ActionByKind<
+    typeof successActionNames,
+    TAction
+>;
 
-export type ConfirmSignDataAction = BaseAction &
-    ConfirmActionExtras & {
-        name: typeof confirmActionNames.signData;
-    };
-
-export type ConfirmSignMessageAction = BaseAction &
-    ConfirmActionExtras & {
-        name: typeof confirmActionNames.signMessage;
-    };
-
-export type ConfirmAction =
-    | ConfirmTransactionAction
-    | ConfirmSignDataAction
-    | ConfirmSignMessageAction;
-
-export type SuccessTransactionAction = BaseAction & {
-    name: typeof successActionNames.sendTransaction;
-};
-
-export type SuccessSignDataAction = BaseAction & {
-    name: typeof successActionNames.signData;
-};
-
-export type SuccessSignMessageAction = BaseAction & {
-    name: typeof successActionNames.signMessage;
-};
-
-export type SuccessAction =
-    | SuccessTransactionAction
-    | SuccessSignDataAction
-    | SuccessSignMessageAction;
-
-export type ErrorTransactionAction = BaseAction & {
-    name: typeof errorActionNames.sendTransaction;
-};
-
-export type ErrorSignDataAction = BaseAction & {
-    name: typeof errorActionNames.signData;
-};
-
-export type ErrorSignMessageAction = BaseAction & {
-    name: typeof errorActionNames.signMessage;
-};
-
-export type ErrorAction = ErrorTransactionAction | ErrorSignDataAction | ErrorSignMessageAction;
+export type ErrorAction<TAction extends ActionKind = ActionKind> = ActionByKind<
+    typeof errorActionNames,
+    TAction
+>;
 
 export type Action = ConfirmAction | SuccessAction | ErrorAction;
 
