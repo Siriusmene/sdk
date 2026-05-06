@@ -6,72 +6,110 @@ import { WalletsModalState } from 'src/models/wallets-modal';
 import { SingleWalletModalState } from 'src/models/single-wallet-modal';
 import { UIWalletInfo } from 'src/app/models/ui-wallet-info';
 
-export type ActionName =
-    | 'confirm-transaction'
-    | 'transaction-sent'
-    | 'transaction-canceled'
-    | 'confirm-sign-data'
-    | 'data-signed'
-    | 'sign-data-canceled'
-    | 'confirm-sign-message'
-    | 'message-signed'
-    | 'sign-message-canceled';
+export type ActionKind = 'sendTransaction' | 'signData' | 'signMessage';
 
-export type Action =
-    | BasicAction
-    | ConfirmTransactionAction
-    | ConfirmSignDataAction
-    | ConfirmSignMessageAction;
+export const confirmActionNames = {
+    sendTransaction: 'confirm-transaction',
+    signData: 'confirm-sign-data',
+    signMessage: 'confirm-sign-message'
+} as const satisfies Record<ActionKind, string>;
 
-type BasicAction = {
-    name: ActionName;
+export const successActionNames = {
+    sendTransaction: 'transaction-sent',
+    signData: 'data-signed',
+    signMessage: 'message-signed'
+} as const satisfies Record<ActionKind, string>;
+
+export const errorActionNames = {
+    sendTransaction: 'transaction-canceled',
+    signData: 'sign-data-canceled',
+    signMessage: 'sign-message-canceled'
+} as const satisfies Record<ActionKind, string>;
+
+export type ConfirmActionName = (typeof confirmActionNames)[ActionKind];
+export type SuccessActionName = (typeof successActionNames)[ActionKind];
+export type ErrorActionName = (typeof errorActionNames)[ActionKind];
+
+type BaseAction = {
     openModal: boolean;
     showNotification: boolean;
     sessionId?: string;
     traceId: string;
+};
+
+type ConfirmActionExtras = {
+    returnStrategy?: ReturnStrategy;
+    twaReturnUrl?: `${string}://${string}`;
     executed?: boolean;
 };
 
-export type ConfirmTransactionAction = BasicAction & {
-    name: 'confirm-transaction';
-    returnStrategy: ReturnStrategy;
-    twaReturnUrl: `${string}://${string}`;
+export type ConfirmTransactionAction = BaseAction &
+    ConfirmActionExtras & {
+        name: typeof confirmActionNames.sendTransaction;
+    };
+
+export type ConfirmSignDataAction = BaseAction &
+    ConfirmActionExtras & {
+        name: typeof confirmActionNames.signData;
+    };
+
+export type ConfirmSignMessageAction = BaseAction &
+    ConfirmActionExtras & {
+        name: typeof confirmActionNames.signMessage;
+    };
+
+export type ConfirmAction =
+    | ConfirmTransactionAction
+    | ConfirmSignDataAction
+    | ConfirmSignMessageAction;
+
+export type SuccessTransactionAction = BaseAction & {
+    name: typeof successActionNames.sendTransaction;
 };
 
-export type ConfirmSignDataAction = BasicAction & {
-    name: 'confirm-sign-data';
-    returnStrategy: ReturnStrategy;
-    twaReturnUrl: `${string}://${string}`;
+export type SuccessSignDataAction = BaseAction & {
+    name: typeof successActionNames.signData;
 };
 
-export type ConfirmSignMessageAction = BasicAction & {
-    name: 'confirm-sign-message';
-    returnStrategy: ReturnStrategy;
-    twaReturnUrl: `${string}://${string}`;
+export type SuccessSignMessageAction = BaseAction & {
+    name: typeof successActionNames.signMessage;
 };
 
-const successActions: readonly ActionName[] = ['transaction-sent', 'data-signed', 'message-signed'];
-const errorActions: readonly ActionName[] = [
-    'transaction-canceled',
-    'sign-data-canceled',
-    'sign-message-canceled'
-];
-const confirmActions: readonly ActionName[] = [
-    'confirm-transaction',
-    'confirm-sign-data',
-    'confirm-sign-message'
-];
+export type SuccessAction =
+    | SuccessTransactionAction
+    | SuccessSignDataAction
+    | SuccessSignMessageAction;
 
-export function isExecutedAction(name: ActionName): boolean {
-    return (successActions as readonly string[]).includes(name);
+export type ErrorTransactionAction = BaseAction & {
+    name: typeof errorActionNames.sendTransaction;
+};
+
+export type ErrorSignDataAction = BaseAction & {
+    name: typeof errorActionNames.signData;
+};
+
+export type ErrorSignMessageAction = BaseAction & {
+    name: typeof errorActionNames.signMessage;
+};
+
+export type ErrorAction = ErrorTransactionAction | ErrorSignDataAction | ErrorSignMessageAction;
+
+export type Action = ConfirmAction | SuccessAction | ErrorAction;
+
+const confirmActionNameSet = new Set<string>(Object.values(confirmActionNames));
+const successActionNameSet = new Set<string>(Object.values(successActionNames));
+const errorActionNameSet = new Set<string>(Object.values(errorActionNames));
+
+export function isConfirmAction(action: Action): action is ConfirmAction {
+    return confirmActionNameSet.has(action.name);
 }
 
-export function isCanceledAction(name: ActionName): boolean {
-    return (errorActions as readonly string[]).includes(name);
+export function isSuccessAction(action: Action): action is SuccessAction {
+    return successActionNameSet.has(action.name);
 }
 
-export function isConfirmAction(name: ActionName): boolean {
-    return (confirmActions as readonly string[]).includes(name);
+export function isErrorAction(action: Action): action is ErrorAction {
+    return errorActionNameSet.has(action.name);
 }
 
 export const [walletsModalState, setWalletsModalState] = createSignal<WalletsModalState>({

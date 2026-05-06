@@ -13,7 +13,7 @@ import { useDataAttributes } from 'src/app/hooks/use-data-attributes';
 import { TonConnectUiContext } from 'src/app/state/ton-connect-ui.context';
 import { isTelegramUrl } from '@tonconnect/sdk';
 import { appState } from 'src/app/state/app.state';
-import { action, isExecutedAction, isCanceledAction } from 'src/app/state/modals-state';
+import { action, isErrorAction, isSuccessAction } from 'src/app/state/modals-state';
 import { isInTMA } from 'src/app/utils/tma-api';
 import {
     redirectToTelegram,
@@ -42,10 +42,12 @@ export const ActionModal: Component<ActionModalProps> = props => {
         const currentAction = action();
 
         setExecuted(
-            !!currentAction && (currentAction.executed || isExecutedAction(currentAction.name))
+            !!currentAction &&
+                (('executed' in currentAction && !!currentAction.executed) ||
+                    isSuccessAction(currentAction))
         );
 
-        setCanceled(!!currentAction && isCanceledAction(currentAction.name));
+        setCanceled(!!currentAction && isErrorAction(currentAction));
     });
 
     let universalLink: string | undefined;
@@ -71,9 +73,8 @@ export const ActionModal: Component<ActionModalProps> = props => {
     const onOpenWallet = (): void => {
         const currentAction = action()!;
         const returnStrategy =
-            'returnStrategy' in currentAction
-                ? currentAction.returnStrategy
-                : appState.returnStrategy;
+            ('returnStrategy' in currentAction && currentAction.returnStrategy) ||
+            appState.returnStrategy;
 
         const forceRedirect = !firstClick();
         setFirstClick(false);
@@ -88,9 +89,8 @@ export const ActionModal: Component<ActionModalProps> = props => {
             redirectToTelegram(linkWithSessionId, {
                 returnStrategy: returnStrategy,
                 twaReturnUrl:
-                    'twaReturnUrl' in currentAction
-                        ? currentAction.twaReturnUrl
-                        : appState.twaReturnUrl,
+                    ('twaReturnUrl' in currentAction && currentAction.twaReturnUrl) ||
+                    appState.twaReturnUrl,
                 forceRedirect: forceRedirect
             });
         } else {

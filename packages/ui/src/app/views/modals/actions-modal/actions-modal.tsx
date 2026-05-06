@@ -1,7 +1,13 @@
 import { Component, Match, Switch } from 'solid-js';
 import { Modal } from 'src/app/components';
 import { appState } from 'src/app/state/app.state';
-import { action, setAction } from 'src/app/state/modals-state';
+import {
+    action,
+    confirmActionNames,
+    errorActionNames,
+    setAction,
+    successActionNames
+} from 'src/app/state/modals-state';
 import { ConfirmTransactionModal } from 'src/app/views/modals/actions-modal/confirm-transaction-modal';
 import { TransactionCanceledModal } from 'src/app/views/modals/actions-modal/transaction-canceled-modal';
 import { TransactionSentModal } from 'src/app/views/modals/actions-modal/transaction-sent-modal';
@@ -22,31 +28,31 @@ export const ActionsModal: Component = () => {
             data-tc-actions-modal-container="true"
         >
             <Switch>
-                <Match when={action()!.name === 'transaction-sent'}>
+                <Match when={action()!.name === successActionNames.sendTransaction}>
                     <TransactionSentModal onClose={() => setAction(null)} />
                 </Match>
-                <Match when={action()!.name === 'transaction-canceled'}>
+                <Match when={action()!.name === errorActionNames.sendTransaction}>
                     <TransactionCanceledModal onClose={() => setAction(null)} />
                 </Match>
-                <Match when={action()!.name === 'confirm-transaction'}>
+                <Match when={action()!.name === confirmActionNames.sendTransaction}>
                     <ConfirmTransactionModal onClose={() => setAction(null)} />
                 </Match>
-                <Match when={action()!.name === 'data-signed'}>
+                <Match when={action()!.name === successActionNames.signData}>
                     <DataSignedModal onClose={() => setAction(null)} />
                 </Match>
-                <Match when={action()!.name === 'sign-data-canceled'}>
+                <Match when={action()!.name === errorActionNames.signData}>
                     <SignDataCanceledModal onClose={() => setAction(null)} />
                 </Match>
-                <Match when={action()!.name === 'confirm-sign-data'}>
+                <Match when={action()!.name === confirmActionNames.signData}>
                     <ConfirmSignDataModal onClose={() => setAction(null)} />
                 </Match>
-                <Match when={action()!.name === 'message-signed'}>
+                <Match when={action()!.name === successActionNames.signMessage}>
                     <MessageSignedModal onClose={() => setAction(null)} />
                 </Match>
-                <Match when={action()!.name === 'sign-message-canceled'}>
+                <Match when={action()!.name === errorActionNames.signMessage}>
                     <SignMessageCanceledModal onClose={() => setAction(null)} />
                 </Match>
-                <Match when={action()!.name === 'confirm-sign-message'}>
+                <Match when={action()!.name === confirmActionNames.signMessage}>
                     <ConfirmSignMessageModal onClose={() => setAction(null)} />
                 </Match>
             </Switch>

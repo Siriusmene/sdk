@@ -43,7 +43,14 @@ import { setBorderRadius, setColors, setTheme } from 'src/app/state/theme-state'
 import { mergeOptions } from 'src/app/utils/options';
 import { appState, setAppState } from 'src/app/state/app.state';
 import { unwrap } from 'solid-js/store';
-import { Action, ActionName, setLastSelectedWalletInfo } from 'src/app/state/modals-state';
+import {
+    Action,
+    ActionKind,
+    confirmActionNames,
+    errorActionNames,
+    setLastSelectedWalletInfo,
+    successActionNames
+} from 'src/app/state/modals-state';
 import { ActionConfiguration, StrictActionConfiguration } from 'src/models/action-configuration';
 import { ConnectedWallet, WalletInfoWithOpenMethod } from 'src/models/connected-wallet';
 import { applyWalletsListConfiguration, eqWalletName } from 'src/app/utils/wallets';
@@ -512,17 +519,13 @@ export class TonConnectUI {
             }
         } satisfies BridgeFlowHandlers<SendTransactionResponse>;
 
-        const action = {
-            before: 'confirm-transaction',
-            success: 'transaction-sent',
-            error: 'transaction-canceled'
-        } satisfies BridgeFlowAction;
+        const kind: ActionKind = 'sendTransaction';
 
         if (!this.connected && options?.onConnected) {
             return this.initiateEmbeddedRequestFlow(
                 { method: 'sendTransaction', request: tx },
                 handlers,
-                action,
+                kind,
                 { ...options, onConnected: options.onConnected, traceId }
             );
         }
@@ -532,7 +535,7 @@ export class TonConnectUI {
             throw new TonConnectUIError('Connect wallet to send a transaction.');
         }
 
-        return this.initiateBridgeFlow(handlers, action, { ...options, traceId });
+        return this.initiateBridgeFlow(handlers, kind, { ...options, traceId });
     }
 
     /**
@@ -559,17 +562,13 @@ export class TonConnectUI {
             }
         } satisfies BridgeFlowHandlers<SignDataResponse>;
 
-        const action = {
-            before: 'confirm-sign-data',
-            success: 'data-signed',
-            error: 'sign-data-canceled'
-        } satisfies BridgeFlowAction;
+        const kind: ActionKind = 'signData';
 
         if (!this.connected && options?.onConnected) {
             return this.initiateEmbeddedRequestFlow(
                 { method: 'signData', request: data },
                 handlers,
-                action,
+                kind,
                 { ...options, onConnected: options.onConnected, traceId }
             );
         }
@@ -579,7 +578,7 @@ export class TonConnectUI {
             throw new TonConnectUIError('Connect wallet to sign data.');
         }
 
-        return this.initiateBridgeFlow(handlers, action, { ...options, traceId });
+        return this.initiateBridgeFlow(handlers, kind, { ...options, traceId });
     }
 
     /**
@@ -602,17 +601,13 @@ export class TonConnectUI {
             }
         } satisfies BridgeFlowHandlers<SignMessageResponse>;
 
-        const action = {
-            before: 'confirm-sign-message',
-            success: 'message-signed',
-            error: 'sign-message-canceled'
-        } satisfies BridgeFlowAction;
+        const kind: ActionKind = 'signMessage';
 
         if (!this.connected && options?.onConnected) {
             return this.initiateEmbeddedRequestFlow(
                 { method: 'signMessage', request: message },
                 handlers,
-                action,
+                kind,
                 { ...options, onConnected: options.onConnected, traceId }
             );
         }
@@ -621,7 +616,7 @@ export class TonConnectUI {
             throw new TonConnectUIError('Connect wallet to sign a message.');
         }
 
-        return this.initiateBridgeFlow(handlers, action, { ...options, traceId });
+        return this.initiateBridgeFlow(handlers, kind, { ...options, traceId });
     }
 
     /**
@@ -837,7 +832,7 @@ export class TonConnectUI {
     private async initiateEmbeddedRequestFlow<TResponse>(
         embeddedRequest: EmbeddedRequest,
         handlers: BridgeFlowHandlers<TResponse>,
-        action: BridgeFlowAction,
+        kind: ActionKind,
         options: PickRequired<ActionOptions<TResponse>, 'traceId' | 'onConnected'>
     ): Promise<TResponse> {
         const consumable = new Consumable(embeddedRequest);
@@ -872,7 +867,7 @@ export class TonConnectUI {
 
             if (!response.ok) {
                 widgetController.setAction({
-                    name: action.error,
+                    name: errorActionNames[kind],
                     showNotification: notifications.includes('error'),
                     openModal: modals.includes('error'),
                     traceId: options.traceId
@@ -884,7 +879,7 @@ export class TonConnectUI {
             }
 
             widgetController.setAction({
-                name: action.success,
+                name: successActionNames[kind],
                 showNotification: notifications.includes('success'),
                 openModal: modals.includes('success'),
                 traceId: options.traceId
@@ -894,14 +889,14 @@ export class TonConnectUI {
         }
 
         const dispatched = consumable.consumed;
-        return await options.onConnected(() => this.initiateBridgeFlow(handlers, action, options), {
+        return await options.onConnected(() => this.initiateBridgeFlow(handlers, kind, options), {
             dispatched
         });
     }
 
     private async initiateBridgeFlow<TResponse>(
         handlers: BridgeFlowHandlers<TResponse>,
-        action: BridgeFlowAction,
+        kind: ActionKind,
         options: Traceable<ActionOptions<TResponse>>
     ): Promise<TResponse> {
         if (isInTMA()) {
@@ -914,7 +909,7 @@ export class TonConnectUI {
         const sessionId = await this.getSessionId();
 
         widgetController.setAction({
-            name: action.before,
+            name: confirmActionNames[kind],
             showNotification: notifications.includes('before'),
             openModal: modals.includes('before'),
             executed: false,
@@ -932,7 +927,7 @@ export class TonConnectUI {
             }
 
             widgetController.setAction({
-                name: action.before,
+                name: confirmActionNames[kind],
                 showNotification: notifications.includes('before'),
                 openModal: modals.includes('before'),
                 executed: true,
@@ -993,7 +988,7 @@ export class TonConnectUI {
             );
 
             widgetController.setAction({
-                name: action.success,
+                name: successActionNames[kind],
                 showNotification: notifications.includes('success'),
                 openModal: modals.includes('success'),
                 traceId: options.traceId
@@ -1011,7 +1006,7 @@ export class TonConnectUI {
             }
 
             widgetController.setAction({
-                name: action.error,
+                name: errorActionNames[kind],
                 showNotification: notifications.includes('error'),
                 openModal: modals.includes('error'),
                 traceId: options.traceId
@@ -1244,12 +1239,6 @@ type BridgeFlowHandlers<TResponse> = {
     sendRequestBuilder: (
         options: OptionalTraceable<{ onRequestSent?: () => void; signal?: AbortSignal }>
     ) => () => Promise<TResponse>;
-};
-
-type BridgeFlowAction = {
-    before: ActionName;
-    success: ActionName;
-    error: ActionName;
 };
 
 type WaitWalletConnectionOptions = Traceable<{

@@ -1,8 +1,8 @@
 import { Accessor, createEffect, createSignal, on, onCleanup } from 'solid-js';
-import { Action, action, ActionName, isConfirmAction } from 'src/app/state/modals-state';
+import { Action, action, isConfirmAction } from 'src/app/state/modals-state';
 
 type Notification = {
-    action: ActionName;
+    action: Action;
 };
 
 /**
@@ -52,7 +52,7 @@ export function useOpenedNotifications(
             }
 
             const isDuplicateConfirmAction =
-                latestAction()?.name === action.name && isConfirmAction(action.name);
+                latestAction()?.name === action.name && isConfirmAction(action);
 
             if (isDuplicateConfirmAction) {
                 return;
@@ -66,7 +66,7 @@ export function useOpenedNotifications(
             );
 
             // create notification
-            const notification: Notification = { action: action.name };
+            const notification: Notification = { action };
             setOpenedNotifications(openedNotifications => [...openedNotifications, notification]);
 
             // remove notification after timeout
