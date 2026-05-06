@@ -348,7 +348,7 @@ export class TonConnect implements ITonConnect {
             options.embeddedRequest = requestOrOptions?.embeddedRequest;
         }
 
-        const embeddedRequest = Consumable.fromConsumableLike(options.embeddedRequest);
+        const embeddedRequest = new Consumable(options.embeddedRequest);
 
         if (options.request) {
             const validationError = validateConnectAdditionalRequest(options.request);
@@ -411,7 +411,7 @@ export class TonConnect implements ITonConnect {
         });
 
         // consume the original only if the provider consumed the wire version
-        if (wireConsumable && wireConsumable.peek() === undefined) {
+        if (wireConsumable?.consumed) {
             this.pendingEmbeddedRequestMethod = embeddedRequest.consume()?.method;
         }
 

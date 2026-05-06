@@ -5,16 +5,14 @@ export type ConsumableLike<T> = T | Consumable<T>;
 export class Consumable<T> {
     private value: T | undefined;
 
-    static fromConsumableLike<T>(value: ConsumableLike<T>): Consumable<T> {
-        if (value instanceof Consumable) {
-            return value;
+    private readonly __isConsumable = true;
+
+    constructor(value: ConsumableLike<T>) {
+        if (value && typeof value === 'object' && (value as Consumable<T>).__isConsumable) {
+            return value as Consumable<T>;
         }
 
-        return new Consumable(value);
-    }
-
-    constructor(value: T) {
-        this.value = value;
+        this.value = value as T;
     }
 
     peek(): T | undefined {
