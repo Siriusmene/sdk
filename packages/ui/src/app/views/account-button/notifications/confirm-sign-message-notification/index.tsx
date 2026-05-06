@@ -1,13 +1,15 @@
 import { Component, useContext } from 'solid-js';
 import { Notification } from 'src/app/components/notification';
 import { Styleable } from 'src/app/models/styleable';
-import { LoaderIconStyled } from 'src/app/views/account-button/notifications/confirm-operation-notification/style';
+import { LoaderIconStyled } from 'src/app/views/account-button/notifications/confirm-transaction-notification/style';
 import { TonConnectUiContext } from 'src/app/state/ton-connect-ui.context';
 import { useI18n } from '@solid-primitives/i18n';
 
-interface ConfirmOperationNotificationProps extends Styleable {}
+interface ConfirmSignMessageNotificationProps extends Styleable {}
 
-export const ConfirmOperationNotification: Component<ConfirmOperationNotificationProps> = props => {
+export const ConfirmSignMessageNotification: Component<
+    ConfirmSignMessageNotificationProps
+> = props => {
     const tonConnectUI = useContext(TonConnectUiContext);
     const [t] = useI18n();
     const name = (): string =>
@@ -18,14 +20,14 @@ export const ConfirmOperationNotification: Component<ConfirmOperationNotificatio
     return (
         <Notification
             header={{
-                translationKey: 'notifications.confirm.header',
+                translationKey: 'notifications.confirmSignMessage.header',
                 translationValues: { name: name() }
             }}
             class={props.class}
             icon={<LoaderIconStyled />}
-            data-tc-notification-confirm="true"
+            data-tc-notification-confirm-sign-message="true"
         >
-            Confirm operation in your wallet
+            Confirm message signing in your wallet
         </Notification>
     );
 };

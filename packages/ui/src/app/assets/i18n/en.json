@@ -21,8 +21,14 @@
     }
   },
   "notifications": {
-    "confirm": {
+    "confirmTransaction": {
       "header": "Open {{ name }} to confirm the transaction."
+    },
+    "confirmSignData": {
+      "header": "Open {{ name }} to confirm the data signing."
+    },
+    "confirmSignMessage": {
+      "header": "Open {{ name }} to confirm the message signing."
     },
     "transactionSent": {
       "header": "Transaction sent",
@@ -123,7 +129,7 @@
     },
     "featureNotSupported": {
       "wallet": {
-        "title": "{{ name }} doesn’t support the requested\u00A0action",
+        "title": "{{ name }} doesn’t support the requested action",
         "description": "Install a supported wallet from the list below, restore it with your recovery phrase, then connect it and try again.",
         "info": "Learn how to restore your wallet"
       },
