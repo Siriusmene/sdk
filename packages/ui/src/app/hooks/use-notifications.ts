@@ -1,8 +1,8 @@
 import { Accessor, createEffect, createSignal, on, onCleanup } from 'solid-js';
-import { Action, action, ActionName } from 'src/app/state/modals-state';
+import { Action, action, isConfirmAction } from 'src/app/state/modals-state';
 
 type Notification = {
-    action: ActionName;
+    action: Action;
 };
 
 /**
@@ -40,7 +40,7 @@ export function useOpenedNotifications(
             if (!action || !action.showNotification) {
                 // clearAction not work without that code
                 setOpenedNotifications(openedNotifications =>
-                    openedNotifications.filter(n => n.action !== 'confirm-transaction')
+                    openedNotifications.filter(n => !isConfirmAction(n.action))
                 );
 
                 return;
@@ -51,14 +51,10 @@ export function useOpenedNotifications(
                 return;
             }
 
-            const isConfirmTransactionAction =
-                latestAction()?.name === 'confirm-transaction' &&
-                action.name === 'confirm-transaction';
+            const isDuplicateConfirmAction =
+                latestAction()?.name === action.name && isConfirmAction(action);
 
-            const isConfirmSignDataAction =
-                latestAction()?.name === 'confirm-sign-data' && action.name === 'confirm-sign-data';
-
-            if (isConfirmTransactionAction || isConfirmSignDataAction) {
+            if (isDuplicateConfirmAction) {
                 return;
             }
 
@@ -66,13 +62,11 @@ export function useOpenedNotifications(
 
             // cleanup all not confirmed transactions
             setOpenedNotifications(openedNotifications =>
-                openedNotifications.filter(
-                    n => n.action !== 'confirm-transaction' && n.action !== 'confirm-sign-data'
-                )
+                openedNotifications.filter(n => !isConfirmAction(n.action))
             );
 
             // create notification
-            const notification: Notification = { action: action.name };
+            const notification: Notification = { action };
             setOpenedNotifications(openedNotifications => [...openedNotifications, notification]);
 
             // remove notification after timeout

@@ -13,7 +13,7 @@ import { useDataAttributes } from 'src/app/hooks/use-data-attributes';
 import { TonConnectUiContext } from 'src/app/state/ton-connect-ui.context';
 import { isTelegramUrl } from '@tonconnect/sdk';
 import { appState } from 'src/app/state/app.state';
-import { action } from 'src/app/state/modals-state';
+import { action, isErrorAction, isSuccessAction } from 'src/app/state/modals-state';
 import { isInTMA } from 'src/app/utils/tma-api';
 import {
     redirectToTelegram,
@@ -35,28 +35,19 @@ export const ActionModal: Component<ActionModalProps> = props => {
     const dataAttrs = useDataAttributes(props);
     const tonConnectUI = useContext(TonConnectUiContext);
     const [firstClick, setFirstClick] = createSignal(true);
-    const [sent, setSent] = createSignal(false);
-    const [signed, setSigned] = createSignal(false);
+    const [executed, setExecuted] = createSignal(false);
     const [canceled, setCanceled] = createSignal(false);
 
     createEffect(() => {
         const currentAction = action();
 
-        setSent(
+        setExecuted(
             !!currentAction &&
-                (('sent' in currentAction && currentAction.sent) ||
-                    currentAction.name === 'transaction-sent')
+                (('executed' in currentAction && !!currentAction.executed) ||
+                    isSuccessAction(currentAction))
         );
-        setSigned(
-            !!currentAction &&
-                (('signed' in currentAction && currentAction.signed) ||
-                    currentAction.name === 'data-signed')
-        );
-        setCanceled(
-            !!currentAction &&
-                (currentAction.name === 'transaction-canceled' ||
-                    currentAction.name === 'sign-data-canceled')
-        );
+
+        setCanceled(!!currentAction && isErrorAction(currentAction));
     });
 
     let universalLink: string | undefined;
@@ -82,9 +73,8 @@ export const ActionModal: Component<ActionModalProps> = props => {
     const onOpenWallet = (): void => {
         const currentAction = action()!;
         const returnStrategy =
-            'returnStrategy' in currentAction
-                ? currentAction.returnStrategy
-                : appState.returnStrategy;
+            ('returnStrategy' in currentAction && currentAction.returnStrategy) ||
+            appState.returnStrategy;
 
         const forceRedirect = !firstClick();
         setFirstClick(false);
@@ -99,9 +89,8 @@ export const ActionModal: Component<ActionModalProps> = props => {
             redirectToTelegram(linkWithSessionId, {
                 returnStrategy: returnStrategy,
                 twaReturnUrl:
-                    'twaReturnUrl' in currentAction
-                        ? currentAction.twaReturnUrl
-                        : appState.twaReturnUrl,
+                    ('twaReturnUrl' in currentAction && currentAction.twaReturnUrl) ||
+                    appState.twaReturnUrl,
                 forceRedirect: forceRedirect
             });
         } else {
@@ -130,8 +119,7 @@ export const ActionModal: Component<ActionModalProps> = props => {
             />
             <Show
                 when={
-                    !sent() &&
-                    !signed() &&
+                    !executed() &&
                     !canceled() &&
                     ((props.showButton === 'open-wallet' && universalLink) ||
                         props.showButton !== 'open-wallet')
@@ -141,7 +129,7 @@ export const ActionModal: Component<ActionModalProps> = props => {
                     <LoaderIconStyled />
                 </LoaderButtonStyled>
             </Show>
-            <Show when={sent() || signed()}>
+            <Show when={executed()}>
                 <Show when={props.showButton !== 'open-wallet'}>
                     <ButtonStyled onClick={() => props.onClose()}>
                         <Translation translationKey="common.close">Close</Translation>

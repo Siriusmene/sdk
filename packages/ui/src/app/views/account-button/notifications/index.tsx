@@ -1,14 +1,23 @@
 import { Component, For, Match, Switch } from 'solid-js';
 import { TransitionGroup } from 'solid-transition-group';
-import { ConfirmOperationNotification } from './confirm-operation-notification';
+import { ConfirmTransactionNotification } from './confirm-transaction-notification';
+import { ConfirmSignDataNotification } from './confirm-sign-data-notification';
+import { ConfirmSignMessageNotification } from './confirm-sign-message-notification';
 import { ErrorTransactionNotification } from './error-transaction-notification';
 import { SuccessTransactionNotification } from './success-transaction-notification';
 import { NotificationClass } from './style';
 import { Styleable } from 'src/app/models/styleable';
 import { useOpenedNotifications } from 'src/app/hooks/use-notifications';
+import {
+    confirmActionNames,
+    errorActionNames,
+    successActionNames
+} from 'src/app/state/modals-state';
 import { animate } from 'src/app/utils/animate';
 import { ErrorSignDataNotification } from './error-sign-data-notification';
 import { SuccessSignDataNotification } from './success-sign-data-notification';
+import { SuccessSignMessageNotification } from './success-sign-message-notification';
+import { ErrorSignMessageNotification } from './error-sign-message-notification';
 
 export interface NotificationsProps extends Styleable {}
 
@@ -45,27 +54,34 @@ export const Notifications: Component<NotificationsProps> = props => {
                 }}
             >
                 <For each={openedNotifications()}>
-                    {openedNotification => (
+                    {({ action }) => (
                         <Switch>
-                            <Match when={openedNotification.action === 'transaction-sent'}>
+                            <Match when={action.name === successActionNames.sendTransaction}>
                                 <SuccessTransactionNotification class={NotificationClass} />
                             </Match>
-                            <Match when={openedNotification.action === 'transaction-canceled'}>
+                            <Match when={action.name === errorActionNames.sendTransaction}>
                                 <ErrorTransactionNotification class={NotificationClass} />
                             </Match>
-                            <Match when={openedNotification.action === 'data-signed'}>
+                            <Match when={action.name === successActionNames.signData}>
                                 <SuccessSignDataNotification class={NotificationClass} />
                             </Match>
-                            <Match when={openedNotification.action === 'sign-data-canceled'}>
+                            <Match when={action.name === successActionNames.signMessage}>
+                                <SuccessSignMessageNotification class={NotificationClass} />
+                            </Match>
+                            <Match when={action.name === errorActionNames.signData}>
                                 <ErrorSignDataNotification class={NotificationClass} />
                             </Match>
-                            <Match
-                                when={
-                                    openedNotification.action === 'confirm-transaction' ||
-                                    openedNotification.action === 'confirm-sign-data'
-                                }
-                            >
-                                <ConfirmOperationNotification class={NotificationClass} />
+                            <Match when={action.name === errorActionNames.signMessage}>
+                                <ErrorSignMessageNotification class={NotificationClass} />
+                            </Match>
+                            <Match when={action.name === confirmActionNames.sendTransaction}>
+                                <ConfirmTransactionNotification class={NotificationClass} />
+                            </Match>
+                            <Match when={action.name === confirmActionNames.signData}>
+                                <ConfirmSignDataNotification class={NotificationClass} />
+                            </Match>
+                            <Match when={action.name === confirmActionNames.signMessage}>
+                                <ConfirmSignMessageNotification class={NotificationClass} />
                             </Match>
                         </Switch>
                     )}
