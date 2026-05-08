@@ -335,13 +335,16 @@ function expandSignDataBody(wire: WireSignData): Record<string, unknown> {
     return payload;
 }
 
+export type DecodedEmbeddedRequest = Omit<
+    AppRequest<'sendTransaction' | 'signMessage' | 'signData'>,
+    'id'
+>;
+
 /**
  * Decode a compact {@link WireEmbeddedRequest} back to the standard JSON-RPC
  * `AppRequest`-shaped `{ method, params: [JSON-string] }`.
  */
-export function decodeWireEmbeddedRequest(
-    wire: WireEmbeddedRequest
-): Omit<AppRequest<'sendTransaction' | 'signMessage' | 'signData'>, 'id'> {
+export function decodeWireEmbeddedRequest(wire: WireEmbeddedRequest): DecodedEmbeddedRequest {
     switch (wire.m) {
         case 'st':
             return {
@@ -367,9 +370,7 @@ export function decodeWireEmbeddedRequest(
  *
  * The `e` value is `base64url(JSON.stringify(WireEmbeddedRequest))`.
  */
-export function decodeEmbeddedRequestParam(
-    reqParam: string
-): Omit<AppRequest<'sendTransaction' | 'signMessage' | 'signData'>, 'id'> {
+export function decodeEmbeddedRequestParam(reqParam: string): DecodedEmbeddedRequest {
     const json = fromBase64Url(reqParam);
     const wire: WireEmbeddedRequest = JSON.parse(json);
     return decodeWireEmbeddedRequest(wire);

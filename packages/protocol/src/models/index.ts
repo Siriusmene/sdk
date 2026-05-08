@@ -28,6 +28,7 @@ export {
     WireSignDataText,
     WireSignDataBinary,
     WireSignDataCell,
+    DecodedEmbeddedRequest,
     decodeWireEmbeddedRequest,
     decodeEmbeddedRequestParam
 } from './embedded-request';
