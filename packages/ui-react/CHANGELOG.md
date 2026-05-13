@@ -1,5 +1,52 @@
 # Changelog @tonconnect/ui-react
 
+## 2.5.0-alpha.0
+
+### Minor Changes
+
+- 73907ad: Add embedded requests
+
+    An RPC request (`sendTransaction`, `signMessage`, or `signData`) can now be embedded directly
+    into the connect URL via an `e` query parameter. On mobile this lets the wallet handle
+    connection and action in a single tap, eliminating the round-trip for "connect and pay" flows.
+
+    In the UI SDK, pass `onConnected` in the request options — the SDK opens the wallet modal,
+    includes the embedded request in the connect URL, and resolves either from the connect event (if
+    the wallet supports `EmbeddedRequest`) or by falling back to the standard bridge flow. The
+    callback receives `context.dispatched` so the dApp can verify on-chain state before retrying, to
+    avoid duplicate submissions on a network error.
+
+    Wallets declare support via the `EmbeddedRequest` feature in `DeviceInfo.features`.
+
+- a9021e6: Add `signMessage` method
+
+    Wallets can now be asked to sign an internal message without broadcasting it. The signed BoC is
+    returned to the dApp, which can submit it through a relayer — enabling gasless (sponsored)
+    transaction flows where the user does not need to hold TON for gas.
+
+    The request payload has the same shape as `sendTransaction` (supports both raw `messages` and
+    structured `items`). Wallets declare support via the `SignMessage` feature in
+    `DeviceInfo.features`.
+
+- 609418a: Add structured items to `sendTransaction` and `signMessage`
+
+    A new `items` field is accepted as an alternative to `messages`. Instead of constructing raw BoC
+    payloads, dApps describe transfers at a high level and the wallet handles BoC construction —
+    resolving jetton wallet addresses, building transfer cells, and estimating gas.
+
+    Three item types are supported: `ton`, `jetton`, and `nft`. A request must contain either
+    `messages` or `items`, never both. Wallets declare supported item types via the `itemTypes`
+    field in the `SendTransaction` / `SignMessage` feature entries.
+
+### Patch Changes
+
+- 97316b7: Fix border radius
+- Updated dependencies [97316b7]
+- Updated dependencies [73907ad]
+- Updated dependencies [a9021e6]
+- Updated dependencies [609418a]
+    - @tonconnect/ui@2.5.0-alpha.0
+
 ## 2.4.4
 
 ### Patch Changes

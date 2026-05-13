@@ -1,0 +1,18 @@
+{
+  "mode": "pre",
+  "tag": "alpha",
+  "initialVersions": {
+    "@tonconnect/isomorphic-eventsource": "0.0.2",
+    "@tonconnect/isomorphic-fetch": "0.0.3",
+    "@tonconnect/protocol": "2.4.0",
+    "@tonconnect/sdk": "3.4.1",
+    "@tonconnect/ui": "2.4.4",
+    "@tonconnect/ui-react": "2.4.4"
+  },
+  "changesets": [
+    "border-radius",
+    "embedded-requests",
+    "sign-message",
+    "structured-items"
+  ]
+}
