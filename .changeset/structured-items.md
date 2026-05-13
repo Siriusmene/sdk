@@ -2,6 +2,7 @@
 '@tonconnect/protocol': minor
 '@tonconnect/sdk': minor
 '@tonconnect/ui': minor
+'@tonconnect/ui-react': minor
 ---
 
 Add structured items to `sendTransaction` and `signMessage`
