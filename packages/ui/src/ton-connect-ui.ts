@@ -497,8 +497,19 @@ export class TonConnectUI {
      */
     public async sendTransaction(
         tx: SendTransactionRequest,
-        options?: ActionOptions<SendTransactionResponse>
-    ): Promise<OptionalTraceable<SendTransactionResponse>> {
+        options?: ActionOptions
+    ): Promise<OptionalTraceable<SendTransactionResponse>>;
+    public async sendTransaction(
+        tx: SendTransactionRequest,
+        options?: EmbeddedActionOptions
+    ): Promise<OptionalTraceable<EmbeddedSendTransactionResponse>>;
+    public async sendTransaction(
+        tx: SendTransactionRequest,
+        options?: ActionOptions | EmbeddedActionOptions
+    ): Promise<
+        | OptionalTraceable<SendTransactionResponse>
+        | OptionalTraceable<EmbeddedSendTransactionResponse>
+    > {
         const traceId = options?.traceId ?? UUIDv7();
 
         this.tracker.trackTransactionSentForSignature(this.wallet, tx);
@@ -521,12 +532,17 @@ export class TonConnectUI {
 
         const kind: ActionKind = 'sendTransaction';
 
-        if (!this.connected && options?.onConnected) {
+        if (
+            !this.connected &&
+            typeof options === 'object' &&
+            options !== null &&
+            'allowConnectAndSendEmbeddedRequest' in options &&
+            options.allowConnectAndSendEmbeddedRequest
+        ) {
             return this.initiateEmbeddedRequestFlow(
                 { method: 'sendTransaction', request: tx },
-                handlers,
                 kind,
-                { ...options, onConnected: options.onConnected, traceId }
+                { ...options, traceId }
             );
         }
 
@@ -544,8 +560,16 @@ export class TonConnectUI {
      */
     public async signData(
         data: SignDataPayload,
-        options?: ActionOptions<SignDataResponse>
-    ): Promise<SignDataResponse> {
+        options?: ActionOptions
+    ): Promise<OptionalTraceable<SignDataResponse>>;
+    public async signData(
+        data: SignDataPayload,
+        options?: EmbeddedActionOptions
+    ): Promise<OptionalTraceable<EmbeddedSignDataResponse>>;
+    public async signData(
+        data: SignDataPayload,
+        options?: ActionOptions | EmbeddedActionOptions
+    ): Promise<OptionalTraceable<SignDataResponse> | OptionalTraceable<EmbeddedSignDataResponse>> {
         const traceId = options?.traceId ?? UUIDv7();
 
         this.tracker.trackDataSentForSignature(this.wallet, data);
@@ -564,13 +588,17 @@ export class TonConnectUI {
 
         const kind: ActionKind = 'signData';
 
-        if (!this.connected && options?.onConnected) {
-            return this.initiateEmbeddedRequestFlow(
-                { method: 'signData', request: data },
-                handlers,
-                kind,
-                { ...options, onConnected: options.onConnected, traceId }
-            );
+        if (
+            !this.connected &&
+            typeof options === 'object' &&
+            options !== null &&
+            'allowConnectAndSendEmbeddedRequest' in options &&
+            options.allowConnectAndSendEmbeddedRequest
+        ) {
+            return this.initiateEmbeddedRequestFlow({ method: 'signData', request: data }, kind, {
+                ...options,
+                traceId
+            });
         }
 
         if (!this.connected) {
@@ -586,10 +614,21 @@ export class TonConnectUI {
      * @param message transaction-like request describing the internal message to sign.
      * @param options modal and notifications behaviour settings.
      */
+
     public async signMessage(
         message: SignMessageRequest,
-        options?: ActionOptions<SignMessageResponse>
-    ): Promise<OptionalTraceable<SignMessageResponse>> {
+        options?: ActionOptions
+    ): Promise<OptionalTraceable<SignMessageResponse>>;
+    public async signMessage(
+        message: SignMessageRequest,
+        options?: EmbeddedActionOptions
+    ): Promise<OptionalTraceable<EmbeddedSignMessageResponse>>;
+    public async signMessage(
+        message: SignMessageRequest,
+        options?: ActionOptions | EmbeddedActionOptions
+    ): Promise<
+        OptionalTraceable<SignMessageResponse> | OptionalTraceable<EmbeddedSignMessageResponse>
+    > {
         const traceId = options?.traceId ?? UUIDv7();
 
         const handlers = {
@@ -603,12 +642,17 @@ export class TonConnectUI {
 
         const kind: ActionKind = 'signMessage';
 
-        if (!this.connected && options?.onConnected) {
+        if (
+            !this.connected &&
+            typeof options === 'object' &&
+            options !== null &&
+            'allowConnectAndSendEmbeddedRequest' in options &&
+            options.allowConnectAndSendEmbeddedRequest
+        ) {
             return this.initiateEmbeddedRequestFlow(
                 { method: 'signMessage', request: message },
-                handlers,
                 kind,
-                { ...options, onConnected: options.onConnected, traceId }
+                { ...options, traceId }
             );
         }
 
@@ -831,10 +875,9 @@ export class TonConnectUI {
 
     private async initiateEmbeddedRequestFlow<TResponse>(
         embeddedRequest: EmbeddedRequest,
-        handlers: BridgeFlowHandlers<TResponse>,
         kind: ActionKind,
-        options: PickRequired<ActionOptions<TResponse>, 'traceId' | 'onConnected'>
-    ): Promise<TResponse> {
+        options: PickRequired<ActionOptions, 'traceId'>
+    ): Promise<OptionalTraceable<EmbeddedTResponse<TResponse>>> {
         const consumable = new Consumable(embeddedRequest);
 
         const abortController = new AbortController();
@@ -885,19 +928,25 @@ export class TonConnectUI {
                 traceId: options.traceId
             });
 
-            return response.result as TResponse;
+            return {
+                hasResponse: true,
+                response: response.result as TResponse
+            };
         }
 
         const dispatched = consumable.consumed;
-        return await options.onConnected(() => this.initiateBridgeFlow(handlers, kind, options), {
-            dispatched
-        });
+        return {
+            hasResponse: false,
+            connectResult: {
+                dispatched
+            }
+        };
     }
 
     private async initiateBridgeFlow<TResponse>(
         handlers: BridgeFlowHandlers<TResponse>,
         kind: ActionKind,
-        options: Traceable<ActionOptions<TResponse>>
+        options: Traceable<ActionOptions>
     ): Promise<TResponse> {
         if (isInTMA()) {
             sendExpand();
@@ -1225,14 +1274,31 @@ export class TonConnectUI {
     }
 }
 
-type ActionOptions<TResponse> = ActionConfiguration &
+type ActionOptions = ActionConfiguration &
     OptionalTraceable<{
         onRequestSent?: (redirectToWallet: () => void) => void;
-        onConnected?: (
-            send: () => Promise<TResponse>,
-            context: { dispatched: boolean }
-        ) => Promise<TResponse>;
     }>;
+
+type EnableEmbeddedRequest = {
+    enableEmbeddedRequest: true;
+};
+
+type EmbeddedActionOptions = ActionOptions & EnableEmbeddedRequest;
+
+type EmbeddedTResponse<TResponse> =
+    | { response: TResponse; hasResponse: true }
+    | {
+          connectResult: {
+              dispatched: boolean;
+          };
+          hasResponse: false;
+      };
+
+type EmbeddedSendTransactionResponse = EmbeddedTResponse<SendTransactionResponse>;
+
+type EmbeddedSignDataResponse = EmbeddedTResponse<SignDataResponse>;
+
+type EmbeddedSignMessageResponse = EmbeddedTResponse<SignMessageResponse>;
 
 type BridgeFlowHandlers<TResponse> = {
     onAbort: () => TonConnectUIError;
