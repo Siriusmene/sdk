@@ -41,6 +41,7 @@ type RetryPrompt = { payload: SignDataPayload; label: string; dispatched: boolea
 export function SignDataTester() {
     const wallet = useTonWallet();
     const [tonConnectUi] = useTonConnectUI();
+    const [embeddedRequest, setEmbeddedRequest] = useState(false);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [signDataRequest, setSignDataRequest] = useState<any>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -57,24 +58,32 @@ export function SignDataTester() {
         console.log(`📤 Sign Data Request (${label}):`, payload);
 
         try {
-            // Always opt into the embedded-request flow: the SDK opens the connect modal with the
-            // request folded into the URL when not connected, or runs the bridge flow when
-            // already connected — and wraps both into the same `{ hasResponse, ... }` envelope.
-            const embedded = await tonConnectUi.signData(payload, { enableEmbeddedRequest: true });
-            if (!embedded.hasResponse) {
-                // Never retry inline — show a button (see JSDoc on signData). When
-                // `dispatched: true`, the wallet already received the request via the connect
-                // URL and may have already signed it; before re-prompting, the dApp can verify
-                // on-chain (or in its own backend logic) that it doesn't already hold a valid
-                // signature for this payload to avoid collecting a duplicate.
-                setRetryPrompt({
-                    payload,
-                    label,
-                    dispatched: embedded.connectResult.dispatched
+            let result: SignDataResponse;
+            if (embeddedRequest) {
+                // Opt into the embedded-request flow: the SDK opens the connect modal with the
+                // request folded into the URL when not connected, or runs the bridge flow when
+                // already connected — and wraps both into the same `{ hasResponse, ... }`
+                // envelope.
+                const embedded = await tonConnectUi.signData(payload, {
+                    enableEmbeddedRequest: true
                 });
-                return;
+                if (!embedded.hasResponse) {
+                    // Never retry inline — show a button (see JSDoc on signData). When
+                    // `dispatched: true`, the wallet already received the request via the connect
+                    // URL and may have already signed it; before re-prompting, the dApp can
+                    // verify on-chain (or in its own backend logic) that it doesn't already hold
+                    // a valid signature for this payload to avoid collecting a duplicate.
+                    setRetryPrompt({
+                        payload,
+                        label,
+                        dispatched: embedded.connectResult.dispatched
+                    });
+                    return;
+                }
+                result = embedded.response;
+            } else {
+                result = await tonConnectUi.signData(payload);
             }
-            const result: SignDataResponse = embedded.response;
             setSignDataResponse(result);
             console.log('📥 Sign Data Response:', result);
             if (wallet) {
@@ -97,26 +106,41 @@ export function SignDataTester() {
                 verification
             </div>
 
-            <div className="sign-data-tester__buttons">
-                <button
-                    onClick={() => requestSign(textPayload(), 'Text')}
-                    disabled={Boolean(retryPrompt)}
-                >
-                    Sign Text
-                </button>
-                <button
-                    onClick={() => requestSign(binaryPayload(), 'Binary')}
-                    disabled={Boolean(retryPrompt)}
-                >
-                    Sign Binary
-                </button>
-                <button
-                    onClick={() => requestSign(cellPayload(), 'Cell')}
-                    disabled={Boolean(retryPrompt)}
-                >
-                    Sign Cell
-                </button>
-            </div>
+            <label
+                style={{ margin: '12px 0 0 2px', color: '#b8d4f1', fontWeight: 500, fontSize: 15 }}
+            >
+                <input
+                    type="checkbox"
+                    checked={embeddedRequest}
+                    onChange={e => setEmbeddedRequest(e.target.checked)}
+                />
+                Embed request in connect
+            </label>
+
+            {wallet || embeddedRequest ? (
+                <div className="sign-data-tester__buttons">
+                    <button
+                        onClick={() => requestSign(textPayload(), 'Text')}
+                        disabled={Boolean(retryPrompt)}
+                    >
+                        Sign Text
+                    </button>
+                    <button
+                        onClick={() => requestSign(binaryPayload(), 'Binary')}
+                        disabled={Boolean(retryPrompt)}
+                    >
+                        Sign Binary
+                    </button>
+                    <button
+                        onClick={() => requestSign(cellPayload(), 'Cell')}
+                        disabled={Boolean(retryPrompt)}
+                    >
+                        Sign Cell
+                    </button>
+                </div>
+            ) : (
+                <div className="sign-data-tester__error">Connect wallet to test signing</div>
+            )}
 
             {retryPrompt && (
                 <div
