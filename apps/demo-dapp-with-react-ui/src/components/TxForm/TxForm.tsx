@@ -49,15 +49,23 @@ const defaultTxWithMessages: SendTransactionRequest = {
     ]
 };
 
+// When `enableEmbeddedRequest: true` returns `hasResponse: false`, the connect happened but no
+// signed result came back. The dApp must NOT auto-retry: with `dispatched: true` the wallet may
+// already have processed the request and submitting it again will duplicate it. Surface a button
+// the user can press deliberately, with stronger wording in the dangerous case.
+type RetryPrompt =
+    | { kind: 'sendTx'; dispatched: boolean }
+    | { kind: 'signMessage'; dispatched: boolean };
+
 export function TxForm() {
     const [tx, setTx] = useState(defaultTx);
     const [waitForTx, setWaitForTx] = useState(false);
-    const [withConnect, setWithConnect] = useState(false);
     const [txResult, setTxResult] = useState<object | null>(null);
     const [loading, setLoading] = useState(false);
     const [waitingTx, setWaitingTx] = useState(false);
     const [signLoading, setSignLoading] = useState(false);
     const [signResult, setSignResult] = useState<object | null>(null);
+    const [retryPrompt, setRetryPrompt] = useState<RetryPrompt | null>(null);
 
     const wallet = useTonWallet();
     const [tonConnectUi] = useTonConnectUI();
@@ -81,50 +89,39 @@ export function TxForm() {
         };
     };
 
-    const handleSignMessage = async () => {
-        setSignResult(null);
-        setSignLoading(true);
-        try {
-            const result = await tonConnectUi.signMessage(tx, {
-                onConnected: withConnect
-                    ? (send, { dispatched }) => {
-                          if (dispatched && !confirm('Sign message twice?')) {
-                              throw new Error('Sign message twice');
-                          }
-                          return send();
-                      }
-                    : undefined
-            });
-            setSignResult(result);
-            console.debug('Success tonConnectUi.signMessage', result);
-        } catch (error) {
-            console.error('Error tonConnectUi.signMessage', error);
-        } finally {
-            setSignLoading(false);
-        }
-    };
-
     const handleSendTx = async () => {
         setTxResult(null);
+        setRetryPrompt(null);
         setLoading(true);
         setWaitingTx(false);
         try {
-            const transaction = await tonConnectUi.sendTransaction(tx, {
-                onConnected: withConnect
-                    ? (send, { dispatched }) => {
-                          if (dispatched && !confirm('Send message twice?')) {
-                              throw new Error('Send message twice');
-                          }
-                          return send();
-                      }
-                    : undefined
+            // Always opt into the embedded-request flow: when the wallet is not connected, the
+            // SDK opens the connect modal with the request folded into the connect URL; when
+            // it is connected, the SDK runs the normal bridge flow and wraps the result in the
+            // same `{ hasResponse: true, response }` envelope.
+            const embedded = await tonConnectUi.sendTransaction(tx, {
+                enableEmbeddedRequest: true
             });
+            if (!embedded.hasResponse) {
+                // The wallet connected but didn't return a signed transaction. Never retry inline
+                // — show the user a button instead (see the warning block below). When
+                // `dispatched: true`, the request was already delivered to the wallet via the
+                // connect URL, so before re-prompting, the dApp can also poll on-chain for the
+                // expected transfer (e.g. with the same `TonProofDemoApi.waitForTransaction`-style
+                // logic used by the "Wait for transaction confirmation" toggle below) to detect
+                // whether the wallet already processed the request and avoid a double send.
+                setRetryPrompt({
+                    kind: 'sendTx',
+                    dispatched: embedded.connectResult.dispatched
+                });
+                return;
+            }
+            const transaction = embedded.response;
             console.debug('Success tonConnectUi.sendTransaction', transaction);
-            if (waitForTx && wallet && wallet.account && transaction) {
+            if (waitForTx && wallet && wallet.account) {
                 setWaitingTx(true);
                 const network = wallet.account.chain === CHAIN.TESTNET ? 'testnet' : 'mainnet';
-                const txBoc = transaction.boc;
-                const result = await TonProofDemoApi.waitForTransaction(txBoc, network);
+                const result = await TonProofDemoApi.waitForTransaction(transaction.boc, network);
                 setTxResult(result);
                 setWaitingTx(false);
             }
@@ -135,22 +132,39 @@ export function TxForm() {
         }
     };
 
+    const handleSignMessage = async () => {
+        setSignResult(null);
+        setRetryPrompt(null);
+        setSignLoading(true);
+        try {
+            const embedded = await tonConnectUi.signMessage(tx, {
+                enableEmbeddedRequest: true
+            });
+            if (!embedded.hasResponse) {
+                // Same caveat as sendTransaction: do not retry silently when `dispatched: true`.
+                // Consider an on-chain check (using your dApp's existing transaction lookup) to
+                // detect whether the wallet already processed the request before re-prompting.
+                setRetryPrompt({
+                    kind: 'signMessage',
+                    dispatched: embedded.connectResult.dispatched
+                });
+                return;
+            }
+            setSignResult(embedded.response);
+            console.debug('Success tonConnectUi.signMessage', embedded.response);
+        } catch (error) {
+            console.error('Error tonConnectUi.signMessage', error);
+        } finally {
+            setSignLoading(false);
+        }
+    };
+
     return (
         <div className="send-tx-form">
             <h3>Configure and send transaction</h3>
             <button onClick={() => setTx(defaultTx)}>Set message payload</button>
             <button onClick={() => setTx(defaultTxWithMessages)}>Set items payload</button>
             <button onClick={() => setTx(buildNftItemsPayload())}>Set NFT items payload</button>
-            <label
-                style={{ margin: '12px 0 0 2px', color: '#b8d4f1', fontWeight: 500, fontSize: 15 }}
-            >
-                <input
-                    type="checkbox"
-                    checked={withConnect}
-                    onChange={e => setWithConnect(e.target.checked)}
-                />
-                Embed request in connect
-            </label>
 
             <ReactJson
                 theme="ocean"
@@ -199,19 +213,57 @@ export function TxForm() {
                 </div>
             )}
 
-            {wallet || withConnect ? (
-                <>
-                    <button onClick={handleSendTx} disabled={loading || waitingTx}>
-                        {loading ? 'Sending...' : 'Send transaction'}
+            <button onClick={handleSendTx} disabled={loading || waitingTx || Boolean(retryPrompt)}>
+                {loading ? 'Sending...' : 'Send transaction'}
+            </button>
+            <button onClick={handleSignMessage} disabled={signLoading || Boolean(retryPrompt)}>
+                {signLoading ? 'Signing...' : 'Sign message'}
+            </button>
+
+            {retryPrompt && (
+                <div
+                    style={{
+                        margin: '12px 0',
+                        padding: 12,
+                        borderRadius: 8,
+                        background: retryPrompt.dispatched ? '#5a2424' : '#1f3a52',
+                        color: '#f0f6fb',
+                        border: `1px solid ${retryPrompt.dispatched ? '#c14a4a' : '#3a6a90'}`,
+                        fontSize: 14,
+                        lineHeight: 1.45
+                    }}
+                >
+                    <strong>
+                        {retryPrompt.dispatched ? '⚠️ Possible duplicate' : 'Request not delivered'}
+                    </strong>
+                    <p style={{ margin: '6px 0 10px' }}>
+                        {retryPrompt.dispatched ? (
+                            <>
+                                The {retryPrompt.kind === 'sendTx' ? 'transaction' : 'message'} was
+                                delivered to the wallet inside the connect URL, but no response came
+                                back. The wallet may have already processed it. Check your wallet
+                                history (or the destination address on-chain) before retrying — a
+                                blind retry can result in a duplicate transaction.
+                            </>
+                        ) : (
+                            <>
+                                The wallet connected but did not receive the request. It is safe to
+                                send it again over the bridge.
+                            </>
+                        )}
+                    </p>
+                    <button
+                        onClick={retryPrompt.kind === 'sendTx' ? handleSendTx : handleSignMessage}
+                    >
+                        Retry {retryPrompt.kind === 'sendTx' ? 'transaction' : 'message signing'}
                     </button>
-                    <button onClick={handleSignMessage} disabled={signLoading}>
-                        {signLoading ? 'Signing...' : 'Sign message'}
+                    <button
+                        onClick={() => setRetryPrompt(null)}
+                        style={{ marginLeft: 8, background: 'transparent' }}
+                    >
+                        Dismiss
                     </button>
-                </>
-            ) : (
-                <button onClick={() => tonConnectUi.openModal()}>
-                    Connect wallet to send the transaction
-                </button>
+                </div>
             )}
 
             {txResult && (

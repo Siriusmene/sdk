@@ -33,3 +33,9 @@ export type {
     WalletModalClosed,
     WalletsModalCloseReason
 } from './wallets-modal';
+export type {
+    EmbeddedTResponse,
+    EmbeddedSendTransactionResponse,
+    EmbeddedSignDataResponse,
+    EmbeddedSignMessageResponse
+} from './embedded-response';

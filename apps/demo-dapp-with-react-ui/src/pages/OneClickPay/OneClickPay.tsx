@@ -2,7 +2,12 @@ import './style.scss';
 import { useMemo, useState } from 'react';
 import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
 import { Address } from '@ton/core';
-import { oneClickGaslessPay, PayStage, USDT_MASTER } from './oneClickGaslessFlow';
+import {
+    EmbeddedSignNoResponseError,
+    oneClickGaslessPay,
+    PayStage,
+    USDT_MASTER
+} from './oneClickGaslessFlow';
 
 const DEFAULT_RECIPIENT = 'UQAHIrW23uWY7KOOYz6axu7WlBdA8iGwncI_Y8ZTWZA43yXF';
 const DEFAULT_AMOUNT_USDT = '0.05';
@@ -81,6 +86,21 @@ export function OneClickPay() {
                 onStage: setStage
             });
         } catch (e) {
+            if (e instanceof EmbeddedSignNoResponseError && e.dispatched) {
+                // The wallet may already have signed and submitted the same transfer.
+                // Don't auto-retry — the user must confirm. The "Try again" button below
+                // restarts the flow only after explicit consent.
+                setStage({
+                    name: 'error',
+                    error:
+                        'Wallet connected but did not return a signed message. The request was ' +
+                        'delivered inside the connect URL, so the wallet may have already ' +
+                        'signed it. Check your wallet history (or the recipient address on ' +
+                        'Tonviewer) before retrying — clicking Try again will sign a fresh ' +
+                        'request and could result in a double payment.'
+                });
+                return;
+            }
             setStage({ name: 'error', error: e instanceof Error ? e.message : String(e) });
         }
     };
