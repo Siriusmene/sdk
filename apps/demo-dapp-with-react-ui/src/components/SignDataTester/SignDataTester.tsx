@@ -1,10 +1,41 @@
 /* eslint-disable no-console */
 import './style.scss';
-import { useTonConnectUI, useTonWallet } from '@tonconnect/ui-react';
+import {
+    SignDataPayload,
+    SignDataResponse,
+    useTonConnectUI,
+    useTonWallet
+} from '@tonconnect/ui-react';
 import { beginCell } from '@ton/ton';
 import { useState } from 'react';
 import ReactJson from 'react-json-view';
 import { TonProofDemoApi } from '../../TonProofDemoApi';
+
+const textPayload = (): SignDataPayload => ({
+    type: 'text',
+    text: 'I confirm this test signature request.'
+});
+
+const binaryPayload = (): SignDataPayload => ({
+    type: 'binary',
+    bytes: Buffer.from('I confirm this test signature request.', 'ascii').toString('base64')
+});
+
+const cellPayload = (): SignDataPayload => {
+    const text = 'Test message in cell';
+    const cell = beginCell().storeUint(text.length, 7).storeStringTail(text).endCell();
+    return {
+        type: 'cell',
+        schema: 'message#_ len:uint7 {len <= 127} text:(bits len * 8) = Message;',
+        cell: cell.toBoc().toString('base64')
+    };
+};
+
+// When `enableEmbeddedRequest: true` returns `hasResponse: false`, the connect happened but no
+// signature came back. The dApp must NOT auto-retry: with `dispatched: true` the wallet may
+// already have signed the request and the signature is just lost in transit. Surface a button the
+// user can press deliberately and warn loudly in the dangerous case.
+type RetryPrompt = { payload: SignDataPayload; label: string; dispatched: boolean };
 
 // Component to test SignData functionality
 export function SignDataTester() {
@@ -17,152 +48,52 @@ export function SignDataTester() {
     const [signDataResponse, setSignDataResponse] = useState<any>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [verificationResult, setVerificationResult] = useState<any>(null);
+    const [retryPrompt, setRetryPrompt] = useState<RetryPrompt | null>(null);
 
-    // Handle text signing
-    const handleTextSign = async () => {
-        // Clear previous state
-        setSignDataRequest(null);
+    const requestSign = async (payload: SignDataPayload, label: string) => {
+        setSignDataRequest(payload);
         setSignDataResponse(null);
         setVerificationResult(null);
+        setRetryPrompt(null);
+        console.log(`📤 Sign Data Request (${label}):`, payload);
 
         try {
-            const requestPayload = {
-                type: 'text' as const,
-                text: 'I confirm this test signature request.'
-            };
-
-            setSignDataRequest(requestPayload);
-            console.log('📤 Sign Data Request (Text):', requestPayload);
-
-            const result = await tonConnectUi.signData(requestPayload, {
-                onConnected: embeddedRequest
-                    ? (send, { dispatched }) => {
-                          if (dispatched && !confirm('Sign data twice?')) {
-                              throw new Error('Sign data twice');
-                          }
-                          return send();
-                      }
-                    : undefined
-            });
-
+            let result: SignDataResponse;
+            if (embeddedRequest) {
+                // Opt into the embedded-request flow: the SDK opens the connect modal with the
+                // request folded into the URL when not connected, or runs the bridge flow when
+                // already connected — and wraps both into the same `{ hasResponse, ... }`
+                // envelope.
+                const embedded = await tonConnectUi.signData(payload, {
+                    enableEmbeddedRequest: true
+                });
+                if (!embedded.hasResponse) {
+                    // Never retry inline — show a button (see JSDoc on signData). When
+                    // `dispatched: true`, the wallet already received the request via the connect
+                    // URL and may have already signed it; before re-prompting, the dApp can
+                    // verify on-chain (or in its own backend logic) that it doesn't already hold
+                    // a valid signature for this payload to avoid collecting a duplicate.
+                    setRetryPrompt({
+                        payload,
+                        label,
+                        dispatched: embedded.connectResult.dispatched
+                    });
+                    return;
+                }
+                result = embedded.response;
+            } else {
+                result = await tonConnectUi.signData(payload);
+            }
             setSignDataResponse(result);
-            console.log('📥 Sign Data Response (Text):', result);
-
-            // Verify the signature
+            console.log('📥 Sign Data Response:', result);
             if (wallet) {
                 const verification = await TonProofDemoApi.checkSignData(result, wallet.account);
                 setVerificationResult(verification);
-                console.log('✅ Verification Result (Text):', verification);
+                console.log('✅ Verification Result:', verification);
             }
         } catch (e) {
-            console.error('Error signing text:', e);
-            if (e instanceof Error) {
-                setSignDataResponse({ error: e.message });
-            } else {
-                setSignDataResponse({ error: 'Unknown error' });
-            }
-        }
-    };
-
-    // Handle binary signing
-    const handleBinarySign = async () => {
-        // Clear previous state
-        setSignDataRequest(null);
-        setSignDataResponse(null);
-        setVerificationResult(null);
-
-        try {
-            // Example binary data (random bytes)
-            const binaryData = Buffer.from('I confirm this test signature request.', 'ascii');
-            const requestPayload = {
-                type: 'binary' as const,
-                bytes: binaryData.toString('base64')
-            };
-
-            setSignDataRequest(requestPayload);
-            console.log('📤 Sign Data Request (Binary):', requestPayload);
-
-            const result = await tonConnectUi.signData(requestPayload, {
-                onConnected: embeddedRequest
-                    ? (send, { dispatched }) => {
-                          if (dispatched && !confirm('Sign data twice?')) {
-                              throw new Error('Sign data twice');
-                          }
-                          return send();
-                      }
-                    : undefined
-            });
-
-            setSignDataResponse(result);
-            console.log('📥 Sign Data Response (Binary):', result);
-
-            // Verify the signature
-            if (wallet) {
-                const verification = await TonProofDemoApi.checkSignData(result, wallet.account);
-                setVerificationResult(verification);
-                console.log('✅ Verification Result (Binary):', verification);
-            }
-        } catch (e) {
-            console.error('Error signing binary:', e);
-            if (e instanceof Error) {
-                setSignDataResponse({ error: e.message });
-            } else {
-                setSignDataResponse({ error: 'Unknown error' });
-            }
-        }
-    };
-
-    // Handle cell signing
-    const handleCellSign = async () => {
-        // Clear previous state
-        setSignDataRequest(null);
-        setSignDataResponse(null);
-        setVerificationResult(null);
-
-        try {
-            // Create a simple cell with a message
-            const text = 'Test message in cell';
-            const cell = beginCell()
-                .storeUint(text.length, 7) // length
-                .storeStringTail(text)
-                .endCell();
-
-            const requestPayload = {
-                type: 'cell' as const,
-                schema: 'message#_ len:uint7 {len <= 127} text:(bits len * 8) = Message;',
-                cell: cell.toBoc().toString('base64')
-            };
-
-            setSignDataRequest(requestPayload);
-            console.log('📤 Sign Data Request (Cell):', requestPayload);
-
-            const result = await tonConnectUi.signData(requestPayload, {
-                onConnected: embeddedRequest
-                    ? (send, { dispatched }) => {
-                          if (dispatched && !confirm('Sign data twice?')) {
-                              throw new Error('Sign data twice');
-                          }
-                          return send();
-                      }
-                    : undefined
-            });
-
-            setSignDataResponse(result);
-            console.log('📥 Sign Data Response (Cell):', result);
-
-            // Verify the signature
-            if (wallet) {
-                const verification = await TonProofDemoApi.checkSignData(result, wallet.account);
-                setVerificationResult(verification);
-                console.log('✅ Verification Result (Cell):', verification);
-            }
-        } catch (e) {
-            console.error('Error signing cell:', e);
-            if (e instanceof Error) {
-                setSignDataResponse({ error: e.message });
-            } else {
-                setSignDataResponse({ error: 'Unknown error' });
-            }
+            console.error(`Error signing ${label}:`, e);
+            setSignDataResponse({ error: e instanceof Error ? e.message : 'Unknown error' });
         }
     };
 
@@ -188,12 +119,73 @@ export function SignDataTester() {
 
             {wallet || embeddedRequest ? (
                 <div className="sign-data-tester__buttons">
-                    <button onClick={handleTextSign}>Sign Text</button>
-                    <button onClick={handleBinarySign}>Sign Binary</button>
-                    <button onClick={handleCellSign}>Sign Cell</button>
+                    <button
+                        onClick={() => requestSign(textPayload(), 'Text')}
+                        disabled={Boolean(retryPrompt)}
+                    >
+                        Sign Text
+                    </button>
+                    <button
+                        onClick={() => requestSign(binaryPayload(), 'Binary')}
+                        disabled={Boolean(retryPrompt)}
+                    >
+                        Sign Binary
+                    </button>
+                    <button
+                        onClick={() => requestSign(cellPayload(), 'Cell')}
+                        disabled={Boolean(retryPrompt)}
+                    >
+                        Sign Cell
+                    </button>
                 </div>
             ) : (
                 <div className="sign-data-tester__error">Connect wallet to test signing</div>
+            )}
+
+            {retryPrompt && (
+                <div
+                    style={{
+                        margin: '12px 0',
+                        padding: 12,
+                        borderRadius: 8,
+                        background: retryPrompt.dispatched ? '#5a2424' : '#1f3a52',
+                        color: '#f0f6fb',
+                        border: `1px solid ${retryPrompt.dispatched ? '#c14a4a' : '#3a6a90'}`,
+                        fontSize: 14,
+                        lineHeight: 1.45
+                    }}
+                >
+                    <strong>
+                        {retryPrompt.dispatched
+                            ? '⚠️ Signature may already exist'
+                            : 'Request not delivered'}
+                    </strong>
+                    <p style={{ margin: '6px 0 10px' }}>
+                        {retryPrompt.dispatched ? (
+                            <>
+                                The {retryPrompt.label.toLowerCase()} sign request was delivered to
+                                the wallet inside the connect URL but no signature came back. The
+                                wallet may have already signed it. Confirm with the user before
+                                retrying — otherwise you may collect a second signature for the same
+                                payload.
+                            </>
+                        ) : (
+                            <>
+                                The wallet connected but did not receive the request. It is safe to
+                                ask the wallet to sign again over the bridge.
+                            </>
+                        )}
+                    </p>
+                    <button onClick={() => requestSign(retryPrompt.payload, retryPrompt.label)}>
+                        Retry signing ({retryPrompt.label})
+                    </button>
+                    <button
+                        onClick={() => setRetryPrompt(null)}
+                        style={{ marginLeft: 8, background: 'transparent' }}
+                    >
+                        Dismiss
+                    </button>
+                </div>
             )}
 
             {signDataRequest && (

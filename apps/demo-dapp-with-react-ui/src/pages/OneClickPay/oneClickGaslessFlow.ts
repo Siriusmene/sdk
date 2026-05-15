@@ -86,6 +86,27 @@ async function estimateRelayFee(params: OneClickPayParams): Promise<RelayEstimat
 }
 
 /**
+ * Thrown when `signMessage` returns `hasResponse: false`. Carries `dispatched` so the caller can
+ * decide how to recover:
+ *  - `dispatched: false` — the request never made it to the wallet; the user can safely click Pay
+ *    again to send it over the bridge.
+ *  - `dispatched: true` — the request rode along with the connect URL but no BoC came back. The
+ *    wallet may have already signed (and the user may have already approved) the same transfer.
+ *    The page should look the user in the eye before retrying: check the destination address
+ *    on-chain for a matching transfer first, otherwise a retry can double-send.
+ */
+export class EmbeddedSignNoResponseError extends Error {
+    constructor(public readonly dispatched: boolean) {
+        super(
+            dispatched
+                ? 'Wallet connected but the signed message was not returned. The request was delivered inside the connect URL — the wallet may already have signed it. Verify the destination address on-chain before retrying.'
+                : 'Wallet connected but the signed message was not returned. The request did not reach the wallet, so retrying is safe.'
+        );
+        this.name = 'EmbeddedSignNoResponseError';
+    }
+}
+
+/**
  * One-click gasless USDT transfer with on-chain confirmation.
  *
  * The whole flow is driven by a single `signMessage` call:
@@ -93,11 +114,13 @@ async function estimateRelayFee(params: OneClickPayParams): Promise<RelayEstimat
  *   1. Estimate the relay fee via Tonkeeper's battery endpoint. This doesn't
  *      need the sender's address, so it runs before the wallet is connected.
  *   2. Build a two-item structured request (user's transfer + relay-fee
- *      payment) and hand it to `signMessage`. If the wallet isn't connected,
- *      the SDK opens the connect modal with the request embedded in the URL;
- *      a compliant wallet handles both connect and sign in one round-trip.
- *      Otherwise, `onConnected` fires as a fallback and we ship the request
- *      over the bridge.
+ *      payment) and hand it to `signMessage` with `enableEmbeddedRequest: true`.
+ *      If the wallet isn't connected, the SDK opens the connect modal with the
+ *      request embedded in the URL; a compliant wallet handles both connect and
+ *      sign in one round-trip. If the wallet connects but doesn't return a
+ *      signed message, we throw `EmbeddedSignNoResponseError` so the page can
+ *      ask the user how to recover — we deliberately do not auto-retry, because
+ *      a `dispatched: true` request may have already been signed.
  *   3. Wrap the signed internal message in an external envelope and submit
  *      it via `gaslessSend` (with retry).
  *   4. Poll the sender's event history until the jetton-transfer action
@@ -115,44 +138,46 @@ export async function oneClickGaslessPay(
     params.onStage({ name: 'estimating' });
     const { relayAddress, providerAmount, providerDestination } = await estimateRelayFee(params);
 
-    // 2. Sign. signMessage handles both "already connected" and "not yet
-    //    connected" cases: if not connected, the SDK opens the modal with the
-    //    request embedded in the connect URL. A wallet that understands
-    //    embedded requests signs it together with connect; otherwise
-    //    `onConnected` fires and we ship the request over the bridge.
+    // 2. Sign. With `enableEmbeddedRequest: true` the SDK opens the connect
+    //    modal with the request folded into the URL when the wallet is not
+    //    connected, and wraps the normal bridge flow in the same envelope when
+    //    it is — so we get a uniform `{ hasResponse, ... }` result either way.
     params.onStage({ name: 'signing' });
     const signedAtSec = Math.floor(Date.now() / 1000);
 
-    const { internalBoc } = await tonConnectUi.signMessage(
-        {
-            validUntil: Math.ceil(Date.now() / 1000) + 5 * 60,
-            items: [
-                {
-                    type: 'jetton',
-                    master: params.master.toString(),
-                    amount: params.amount.toString(),
-                    destination: params.destination.toString(),
-                    responseDestination: relayAddress.toString(),
-                    attachAmount: BASE_JETTON_SEND_AMOUNT.toString(),
-                    forwardAmount: '1'
-                },
-                {
-                    type: 'jetton',
-                    master: params.master.toString(),
-                    amount: providerAmount,
-                    destination: providerDestination,
-                    responseDestination: relayAddress.toString()
-                }
-            ]
-        },
-        {
-            // Fallback path: only reached when the wallet didn't fold the
-            // embedded request into connect. `send()` ships the same request
-            // over the bridge. When the wallet *did* handle it at connect
-            // time, the SDK short-circuits and this callback never fires.
-            onConnected: send => send()
-        }
-    );
+    const signPayload = {
+        validUntil: Math.ceil(Date.now() / 1000) + 5 * 60,
+        items: [
+            {
+                type: 'jetton' as const,
+                master: params.master.toString(),
+                amount: params.amount.toString(),
+                destination: params.destination.toString(),
+                responseDestination: relayAddress.toString(),
+                attachAmount: BASE_JETTON_SEND_AMOUNT.toString(),
+                forwardAmount: '1'
+            },
+            {
+                type: 'jetton' as const,
+                master: params.master.toString(),
+                amount: providerAmount,
+                destination: providerDestination,
+                responseDestination: relayAddress.toString()
+            }
+        ]
+    };
+
+    const embedded = await tonConnectUi.signMessage(signPayload, {
+        enableEmbeddedRequest: true
+    });
+
+    if (!embedded.hasResponse) {
+        // No signed BoC came back. We deliberately don't retry here — the page-level UI
+        // surfaces a retry button so the user can confirm, and on `dispatched: true` it
+        // can also poll on-chain for the expected transfer before re-prompting the wallet.
+        throw new EmbeddedSignNoResponseError(embedded.connectResult.dispatched);
+    }
+    const { internalBoc } = embedded.response;
 
     if (!tonConnectUi.wallet?.account?.publicKey) {
         throw new Error('Connected wallet has no public key — cannot submit via gasless relay');

@@ -53,6 +53,12 @@ import {
 } from 'src/app/state/modals-state';
 import { ActionConfiguration, StrictActionConfiguration } from 'src/models/action-configuration';
 import { ConnectedWallet, WalletInfoWithOpenMethod } from 'src/models/connected-wallet';
+import type {
+    EmbeddedTResponse,
+    EmbeddedSendTransactionResponse,
+    EmbeddedSignDataResponse,
+    EmbeddedSignMessageResponse
+} from 'src/models/embedded-response';
 import { applyWalletsListConfiguration, eqWalletName } from 'src/app/utils/wallets';
 import { uniq } from 'src/app/utils/array';
 import { Loadable } from 'src/models/loadable';
@@ -492,13 +498,44 @@ export class TonConnectUI {
 
     /**
      * Opens the modal window and handles the transaction sending.
+     *
+     * Pass `options.enableEmbeddedRequest: true` to allow the request to ride along with the
+     * connect URL on mobile, eliminating a round-trip. With that flag, the result is always the
+     * embedded shape:
+     *
+     * - `{ hasResponse: true, response }` — the transaction was signed, either folded into connect
+     *   by an embedded-request-capable wallet, or via the normal bridge flow.
+     * - `{ hasResponse: false, connectResult: { dispatched } }` — the wallet connected but did not
+     *   return a signed transaction. The dApp must decide how to recover:
+     *     - `dispatched: false` — the request never reached the wallet.
+     *     - `dispatched: true` — **the request was delivered to the wallet inside the connect
+     *       URL.** The wallet may have already signed and submitted it; you just didn't get the
+     *       response. **Do not retry silently.** Surface an explicit retry button to the user, and
+     *       ideally check on-chain state (e.g. the user's transaction history for the destination,
+     *       queryId and amount) before re-submitting to avoid a duplicate transaction.
+     *
+     * Without the flag the method throws if the wallet is not connected and returns the plain
+     * `SendTransactionResponse` otherwise.
+     *
      * @param tx transaction to send.
-     * @param options modal and notifications behaviour settings. Default is show only 'before' modal and all notifications.
+     * @param options modal and notifications behaviour settings; set `enableEmbeddedRequest: true`
+     * to opt into the connect-and-send flow described above.
      */
     public async sendTransaction(
         tx: SendTransactionRequest,
-        options?: ActionOptions<SendTransactionResponse>
-    ): Promise<OptionalTraceable<SendTransactionResponse>> {
+        options?: ActionOptions
+    ): Promise<OptionalTraceable<SendTransactionResponse>>;
+    public async sendTransaction(
+        tx: SendTransactionRequest,
+        options?: EmbeddedActionOptions
+    ): Promise<OptionalTraceable<EmbeddedSendTransactionResponse>>;
+    public async sendTransaction(
+        tx: SendTransactionRequest,
+        options?: ActionOptions | EmbeddedActionOptions
+    ): Promise<
+        | OptionalTraceable<SendTransactionResponse>
+        | OptionalTraceable<EmbeddedSendTransactionResponse>
+    > {
         const traceId = options?.traceId ?? UUIDv7();
 
         this.tracker.trackTransactionSentForSignature(this.wallet, tx);
@@ -520,13 +557,13 @@ export class TonConnectUI {
         } satisfies BridgeFlowHandlers<SendTransactionResponse>;
 
         const kind: ActionKind = 'sendTransaction';
+        const embedded = isEmbeddedActionOptions(options);
 
-        if (!this.connected && options?.onConnected) {
+        if (!this.connected && embedded) {
             return this.initiateEmbeddedRequestFlow(
                 { method: 'sendTransaction', request: tx },
-                handlers,
                 kind,
-                { ...options, onConnected: options.onConnected, traceId }
+                { ...options, traceId }
             );
         }
 
@@ -535,17 +572,50 @@ export class TonConnectUI {
             throw new TonConnectUIError('Connect wallet to send a transaction.');
         }
 
-        return this.initiateBridgeFlow(handlers, kind, { ...options, traceId });
+        const result = await this.initiateBridgeFlow(handlers, kind, { ...options, traceId });
+        if (embedded) {
+            return { hasResponse: true, response: result, traceId };
+        }
+        return result;
     }
 
     /**
      * Signs the data and returns the signature.
+     *
+     * Pass `options.enableEmbeddedRequest: true` to allow the request to ride along with the
+     * connect URL on mobile, eliminating a round-trip. With that flag, the result is always the
+     * embedded shape:
+     *
+     * - `{ hasResponse: true, response }` — the data was signed, either folded into connect by an
+     *   embedded-request-capable wallet, or via the normal bridge flow.
+     * - `{ hasResponse: false, connectResult: { dispatched } }` — the wallet connected but did not
+     *   return a signature. Recovery is the dApp's responsibility:
+     *     - `dispatched: false` — the request never reached the wallet.
+     *     - `dispatched: true` — **the request was delivered to the wallet inside the connect
+     *       URL.** The wallet may have already signed it; you just didn't get the response back.
+     *       **Do not retry silently.** Surface an explicit retry button to the user, and, where it
+     *       makes sense, verify that you don't already have the signature you need before
+     *       re-submitting.
+     *
+     * Without the flag the method throws if the wallet is not connected and returns the plain
+     * `SignDataResponse` otherwise.
+     *
      * @param data data to sign.
+     * @param options modal and notifications behaviour settings; set `enableEmbeddedRequest: true`
+     * to opt into the connect-and-sign flow described above.
      */
     public async signData(
         data: SignDataPayload,
-        options?: ActionOptions<SignDataResponse>
-    ): Promise<SignDataResponse> {
+        options?: ActionOptions
+    ): Promise<OptionalTraceable<SignDataResponse>>;
+    public async signData(
+        data: SignDataPayload,
+        options?: EmbeddedActionOptions
+    ): Promise<OptionalTraceable<EmbeddedSignDataResponse>>;
+    public async signData(
+        data: SignDataPayload,
+        options?: ActionOptions | EmbeddedActionOptions
+    ): Promise<OptionalTraceable<SignDataResponse> | OptionalTraceable<EmbeddedSignDataResponse>> {
         const traceId = options?.traceId ?? UUIDv7();
 
         this.tracker.trackDataSentForSignature(this.wallet, data);
@@ -563,14 +633,13 @@ export class TonConnectUI {
         } satisfies BridgeFlowHandlers<SignDataResponse>;
 
         const kind: ActionKind = 'signData';
+        const embedded = isEmbeddedActionOptions(options);
 
-        if (!this.connected && options?.onConnected) {
-            return this.initiateEmbeddedRequestFlow(
-                { method: 'signData', request: data },
-                handlers,
-                kind,
-                { ...options, onConnected: options.onConnected, traceId }
-            );
+        if (!this.connected && embedded) {
+            return this.initiateEmbeddedRequestFlow({ method: 'signData', request: data }, kind, {
+                ...options,
+                traceId
+            });
         }
 
         if (!this.connected) {
@@ -578,18 +647,54 @@ export class TonConnectUI {
             throw new TonConnectUIError('Connect wallet to sign data.');
         }
 
-        return this.initiateBridgeFlow(handlers, kind, { ...options, traceId });
+        const result = await this.initiateBridgeFlow(handlers, kind, { ...options, traceId });
+        if (embedded) {
+            return { hasResponse: true, response: result, traceId };
+        }
+        return result;
     }
 
     /**
      * Signs a message built from a transaction request and returns the signed internal message BoC.
+     *
+     * Pass `options.enableEmbeddedRequest: true` to allow the request to ride along with the
+     * connect URL on mobile, eliminating a round-trip. With that flag, the result is always the
+     * embedded shape:
+     *
+     * - `{ hasResponse: true, response }` — the message was signed, either folded into connect by
+     *   an embedded-request-capable wallet, or via the normal bridge flow.
+     * - `{ hasResponse: false, connectResult: { dispatched } }` — the wallet connected but did not
+     *   return a signed message. Recovery is the dApp's responsibility:
+     *     - `dispatched: false` — the request never reached the wallet. Calling `signMessage(msg)`
+     *       again (over the bridge) is safe.
+     *     - `dispatched: true` — **the request was delivered to the wallet inside the connect
+     *       URL.** The wallet may have already signed (and, for gasless flows, even submitted) it;
+     *       you just didn't get the BoC back. **Do not retry silently.** Surface an explicit retry
+     *       button to the user, and for transfer-style payloads check on-chain (the destination
+     *       and amount in recent transaction history) before re-submitting to avoid a double
+     *       send.
+     *
+     * Without the flag the method throws if the wallet is not connected and returns the plain
+     * `SignMessageResponse` otherwise.
+     *
      * @param message transaction-like request describing the internal message to sign.
-     * @param options modal and notifications behaviour settings.
+     * @param options modal and notifications behaviour settings; set `enableEmbeddedRequest: true`
+     * to opt into the connect-and-sign flow described above.
      */
     public async signMessage(
         message: SignMessageRequest,
-        options?: ActionOptions<SignMessageResponse>
-    ): Promise<OptionalTraceable<SignMessageResponse>> {
+        options?: ActionOptions
+    ): Promise<OptionalTraceable<SignMessageResponse>>;
+    public async signMessage(
+        message: SignMessageRequest,
+        options?: EmbeddedActionOptions
+    ): Promise<OptionalTraceable<EmbeddedSignMessageResponse>>;
+    public async signMessage(
+        message: SignMessageRequest,
+        options?: ActionOptions | EmbeddedActionOptions
+    ): Promise<
+        OptionalTraceable<SignMessageResponse> | OptionalTraceable<EmbeddedSignMessageResponse>
+    > {
         const traceId = options?.traceId ?? UUIDv7();
 
         const handlers = {
@@ -602,13 +707,13 @@ export class TonConnectUI {
         } satisfies BridgeFlowHandlers<SignMessageResponse>;
 
         const kind: ActionKind = 'signMessage';
+        const embedded = isEmbeddedActionOptions(options);
 
-        if (!this.connected && options?.onConnected) {
+        if (!this.connected && embedded) {
             return this.initiateEmbeddedRequestFlow(
                 { method: 'signMessage', request: message },
-                handlers,
                 kind,
-                { ...options, onConnected: options.onConnected, traceId }
+                { ...options, traceId }
             );
         }
 
@@ -616,7 +721,11 @@ export class TonConnectUI {
             throw new TonConnectUIError('Connect wallet to sign a message.');
         }
 
-        return this.initiateBridgeFlow(handlers, kind, { ...options, traceId });
+        const result = await this.initiateBridgeFlow(handlers, kind, { ...options, traceId });
+        if (embedded) {
+            return { hasResponse: true, response: result, traceId };
+        }
+        return result;
     }
 
     /**
@@ -831,10 +940,9 @@ export class TonConnectUI {
 
     private async initiateEmbeddedRequestFlow<TResponse>(
         embeddedRequest: EmbeddedRequest,
-        handlers: BridgeFlowHandlers<TResponse>,
         kind: ActionKind,
-        options: PickRequired<ActionOptions<TResponse>, 'traceId' | 'onConnected'>
-    ): Promise<TResponse> {
+        options: PickRequired<ActionOptions, 'traceId'>
+    ): Promise<OptionalTraceable<EmbeddedTResponse<TResponse>>> {
         const consumable = new Consumable(embeddedRequest);
 
         const abortController = new AbortController();
@@ -885,19 +993,27 @@ export class TonConnectUI {
                 traceId: options.traceId
             });
 
-            return response.result as TResponse;
+            return {
+                hasResponse: true,
+                response: response.result as TResponse,
+                traceId: options.traceId
+            };
         }
 
         const dispatched = consumable.consumed;
-        return await options.onConnected(() => this.initiateBridgeFlow(handlers, kind, options), {
-            dispatched
-        });
+        return {
+            hasResponse: false,
+            connectResult: {
+                dispatched
+            },
+            traceId: options.traceId
+        };
     }
 
     private async initiateBridgeFlow<TResponse>(
         handlers: BridgeFlowHandlers<TResponse>,
         kind: ActionKind,
-        options: Traceable<ActionOptions<TResponse>>
+        options: Traceable<ActionOptions>
     ): Promise<TResponse> {
         if (isInTMA()) {
             sendExpand();
@@ -1225,14 +1341,27 @@ export class TonConnectUI {
     }
 }
 
-type ActionOptions<TResponse> = ActionConfiguration &
+type ActionOptions = ActionConfiguration &
     OptionalTraceable<{
         onRequestSent?: (redirectToWallet: () => void) => void;
-        onConnected?: (
-            send: () => Promise<TResponse>,
-            context: { dispatched: boolean }
-        ) => Promise<TResponse>;
     }>;
+
+type EnableEmbeddedRequest = {
+    enableEmbeddedRequest: true;
+};
+
+type EmbeddedActionOptions = ActionOptions & EnableEmbeddedRequest;
+
+function isEmbeddedActionOptions(
+    options: ActionOptions | EmbeddedActionOptions | undefined
+): options is EmbeddedActionOptions {
+    return (
+        typeof options === 'object' &&
+        options !== null &&
+        'enableEmbeddedRequest' in options &&
+        options.enableEmbeddedRequest === true
+    );
+}
 
 type BridgeFlowHandlers<TResponse> = {
     onAbort: () => TonConnectUIError;
